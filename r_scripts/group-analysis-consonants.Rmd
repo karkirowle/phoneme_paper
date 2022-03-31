@@ -1,0 +1,1035 @@
+---
+title: "Group analysis: Consonants"
+author: "Thomas Tienkamp ^1^, Rob van Son ^2^^3^,  Bence Halpern ^2^^3^^4^ <br /> ^1^ Center for Language and Cognition Groningen, University of Groningen, Groningen, The Netherlands <br> ^2^ Amsterdam Center for Language and Communication, University of Amsterdam, Amsterdam, The Netherlands <br> ^3^ Netherlands Cancer Institute, Amsterdam, The Netherlands <br> ^4^ Multimedia Computing Group, Delft University of Technology, Delft, The Netherlands"
+date: "Last compiled on: `r date()`"
+output: 
+  html_document:
+    toc: true # table of content true
+    toc_depth: 3  # upto three depths of headings (specified by #, ## and ###)
+    number_sections: false  # if you want number sections at each table header
+    theme: united  # many options for theme, this one is my favorite.
+    highlight: tango  # specifies the syntax highlighting style
+    toc_float: TRUE
+---
+
+# 1. Description
+This code shows the group analysis for both consonants and vowels belonging to the paper: Objective speech outcomes after surgical treatment for oral cancer: An acoustic analysis of a spontaneous speech corpus containing 32.850 tokens.
+
+The code is organised in subsections. Its headers specify the content of the chunk.
+
+## Table with the analysed consonants
+| Place →<br>Manner↓ | Bilabial | Labio- dental | Dental | Alveolar | Post- Alveolar | Velar |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| Plosive | /b/ /p/ |  |  | /t/ /d/ |  | /k/ /g/ |
+| Fricative |  | /f/ /v/ | /θ/ /ð/ | /s/ /z/ | /ʃ/ /ʒ/ |  |
+| Affricate |  |  |  | /tʃ/ /dʒ/ |  |  |
+
+
+# 2. Preliminaries
+## Width
+```{r, echo=TRUE}
+options(width = 180)
+```
+
+## Packages
+```{r}
+# Specify packages
+packages <- c("tidyverse", "lme4", "lmerTest", "visreg", "car", "multcomp", 
+              "emmeans", "boot", "gplots", "lattice", 
+              "sjPlot", "sjmisc", "broom.mixed")
+
+# Load packages or install if they're not installed yet
+package.check <- lapply(
+  packages,
+  FUN = function(x) {
+    if (!require(x, character.only = TRUE)) {
+      install.packages(x, dependencies = TRUE)
+      library(x, character.only = TRUE)
+    }
+  }
+)
+
+# Show package version
+for (package_name in packages) {
+    print(paste(package_name, packageVersion(package_name)))
+}
+```
+
+## Working directory
+```{r}
+# If working in the UWP
+#mywd <- "X:/My Desktop/all-projects/nki_youtube-phoneme/"
+#datawd <- paste0(mywd,"data/")
+
+#If working from home
+mywd <- "C:/Users/Thomas/Desktop/nki_youtube-phoneme/"
+datawd <- paste0(mywd,"data/")
+
+```
+
+## Load data and helper functions
+```{r}
+dat <- read.csv(paste0(datawd, "Analysed.Phonemes.csv"), sep=',', na.strings = "--undefined--")
+
+# Load additional plotting functions
+source(paste0(mywd,"analysis/myFunctions2.R"))
+```
+
+
+# 3. Data exploration
+## Check and change variable types
+```{r}
+#Check variable types
+str(dat)
+head(dat)
+
+# Group, Time, Manner, Place, Voiced, Man_Plc need to be converted from character to factor
+cols <- c("Speaker", "Group", "Time", "Manner", "Place", "Voiced", "Man_Plc")
+dat[cols] <- lapply(dat[cols], as.factor)
+
+# COGint, Tiltint, COGmean, and Skewmean need to be converted from character to numerical
+cols2 <- c("COGint", "Tiltint", "COGmean", "Skewmean")
+dat[cols2] <- lapply(dat[cols2], as.numeric)
+
+#Check
+str(dat) # Looks good
+summary(dat)
+```
+
+## Get Frequency tables
+We'll visualise how many instances there are of each phoneme per Group.
+```{r}
+frequency_table <- dat %>%
+  group_by(Group, Phoneme, Place) %>%
+  count()
+frequency_table # Only 6 instances of /Z/ in the typical group and 13 in the pathoglogical group. Might be problematic.
+```
+
+
+## Filter plosives and fricatives
+Here, we'll filter the phonemes in terms of relevant acoustic parameters (burst frequency, spectral mean, spectral skewness). In general, this means a split between fricatives and plosives. All three parameters are analysed in affricates, so they are included in both selections.
+```{r}
+fricatives <- dat %>%
+  filter(Manner != "Plosive") %>% # rather than manner == "Fricative" to also include the affricates
+  as.data.frame()
+fricatives <- droplevels(fricatives) # Drop unused factorial levels
+plosives <- dat %>%
+  filter(Manner != "Fricative") %>% # rather than manner == "Plosive" to also include the affricates
+  as.data.frame()
+plosives <- droplevels(plosives) # Drop unused factorial levels
+```
+
+
+## Center numerical variables
+All numerical variables are centered around the mean. This is done over the whole dataset if the parameter is applicable to all phonemes (duration & tilt) or to the subsection.
+```{r}
+# All data
+dat$Tiltint.c <- scale(dat$Tiltint, scale = FALSE)
+dat$Duration.c <- scale(dat$Duration, scale = FALSE)
+dat$Duration.c <- dat$Duration.c * 1000 #Turn into miliseconds
+
+# for plosives
+plosives$COGint.c <- scale(plosives$COGint, scale = FALSE)
+
+#For Fricatives
+fricatives$COGmean.c <- scale(fricatives$COGmean, scale = FALSE)
+fricatives$Skewmean.c <- scale(fricatives$Skewmean, scale = FALSE)
+
+```
+
+## Plot numerical variables
+All numerical variables are plotted to visualise the distribution
+```{r}
+# All data
+par(mfrow = c(2, 2))
+boxplot(dat$Tiltint.c)
+hist(dat$Tiltint.c)
+boxplot(dat$Duration.c)
+hist(dat$Duration.c) # Outliers on the right side which brings a positive skew
+
+# Plosives
+par(mfrow = c(1, 2))
+boxplot(plosives$COGint.c)
+hist(plosives$COGint.c) # Relatively strong positive skew
+
+#Fricatives
+par(mfrow = c(2, 2))
+boxplot(fricatives$COGmean.c)
+hist(fricatives$COGmean.c)
+boxplot(fricatives$Skewmean.c)
+hist(fricatives$Skewmean.c) # little positive skew
+```
+
+## Check distribution of numerical variables
+All numerical variables are checked for normality. However, no changes are made yet. If the residuals of the models follow a normal distribution, then the dependent variable does not have to be normally distributed.
+```{r}
+par(mfrow = c(2, 3))
+qqPlot(dat$Duration.c, main = "Duration") # Some outliers on the right side cause the tail
+qqPlot(dat$Tiltint.c, main = "Tilt") # Small tail
+qqPlot(plosives$COGint.c, main = "Burst Frequency") # S distribution
+qqPlot(fricatives$COGmean.c, main = "Spectral mean") # S distribution
+qqPlot(fricatives$Skewmean.c, main = "Spectral skewness") #Some tails
+```
+
+# 4. Set and change necessary contrasts
+Orthogonal sum-to-zero contrasts are applied to binary factorial predictors
+
+### Whole dataset
+```{r}
+# Set group contrast
+contrast <- cbind (c(+1/2, -1/2))
+colnames(contrast) <- c("-Typ+Path") #-0.5 = Typical, 0.5 = Pathological
+contrasts(dat$Group) <- contrast
+contrasts(dat$Group)
+
+# Set voicing contrast
+contrast <- cbind (c(-1/2, +1/2))
+colnames(contrast) <- c("-FALSE+TRUE") #-0.5 = Voiceless, 0.5 = Voiced
+contrasts(dat$Voiced) <- contrast
+contrasts(dat$Voiced)
+```
+
+### Fricatives
+```{r}
+# Set group contrast
+contrast <- cbind (c(+1/2, -1/2))
+colnames(contrast) <- c("-Typ+Path") #-0.5 = Typical, 0.5 = Pathological
+contrasts(fricatives$Group) <- contrast
+contrasts(fricatives$Group)
+
+# Set voicing contrast
+contrast <- cbind (c(-1/2, +1/2))
+colnames(contrast) <- c("-FALSE+TRUE") #-0.5 = Voiceless, 0.5 = Voiced
+contrasts(fricatives$Voiced) <- contrast
+contrasts(fricatives$Voiced)
+```
+
+### Plosives
+```{r}
+# Set group contrast
+contrast <- cbind (c(+1/2, -1/2))
+colnames(contrast) <- c("-Typ+Path") #-0.5 = Typical, 0.5 = Pathological
+contrasts(plosives$Group) <- contrast
+contrasts(plosives$Group)
+
+# Set voicing contrast
+contrast <- cbind (c(-1/2, +1/2))
+colnames(contrast) <- c("-FALSE+TRUE") #-0.5 = Voiceless, 0.5 = Voiced
+contrasts(plosives$Voiced) <- contrast
+contrasts(plosives$Voiced)
+```
+# 5. Spectral Tilt
+One compensatory mechanism for oral cancer speakers is to speak louder, which is reflected in the spectral tilt. We are therefore interested in the main effect of Group on spectral tilt while controlling for other variables.
+
+## With grouped manner and Place
+Hypothesis model:
+```{r}
+t.model <- lmerTest::lmer (Tiltint.c ~ Group + Man_Plc + Voiced + 
+                     (1|Speaker),
+                    data = dat,
+                    REML = T,
+                    lmerControl(optimizer = "bobyqa", 
+                                optCtrl = list(maxfun = 100000)))
+```
+
+### Add interaction between group and Man_Plc
+```{r}
+t.model1 <- lmerTest::lmer (Tiltint.c ~ Group * Man_Plc + Voiced + 
+                     (1|Speaker),
+                    data = dat,
+                    REML = T,
+                    lmerControl(optimizer = "bobyqa", 
+                                optCtrl = list(maxfun = 100000)))
+anova(t.model, t.model1, refit = T) # Interaction improves the model
+
+```
+
+### Add interaction between Group and Voicing
+```{r}
+t.model2 <- lmerTest::lmer (Tiltint.c ~ Group * Man_Plc + Voiced + Group*Voiced +
+                     (1|Speaker),
+                    data = dat,
+                    REML = T,
+                    lmerControl(optimizer = "bobyqa", 
+                                optCtrl = list(maxfun = 100000)))
+anova(t.model1, t.model2, refit = T) # Interaction is necessary
+```
+
+### Add triple interaction
+```{r}
+t.model3 <- lmerTest::lmer (Tiltint.c ~ Group * Man_Plc * Voiced +
+                     (1|Speaker),
+                    data = dat,
+                    REML = T,
+                    lmerControl(optimizer = "bobyqa", 
+                                optCtrl = list(maxfun = 100000)))
+anova(t.model2, t.model3, refit = T) # Triple interaction is better
+```
+
+### Add an intercept for Time
+```{r}
+t.model3.1 <- lmerTest::lmer (Tiltint.c ~ Group * Man_Plc * Voiced +
+                     (1|Speaker) + (1|Time),
+                    data = dat,
+                    REML = T,
+                    lmerControl(optimizer = "bobyqa", 
+                                optCtrl = list(maxfun = 100000)))
+anova(t.model3, t.model3.1, refit = F) # Intercept is necessary
+```
+
+### Add slope for voiced by speaker
+```{r}
+t.model3.2 <- lmerTest::lmer (Tiltint.c ~ Group * Man_Plc * Voiced +
+                     (1 + Voiced|Speaker) + (1|Time),
+                    data = dat,
+                    REML = T,
+                    lmerControl(optimizer = "bobyqa", 
+                                optCtrl = list(maxfun = 100000)))
+anova(t.model3.1, t.model3.2, refit = F) # Slope is necessary
+
+```
+
+### Add slope for voiced by time
+It could be the case that voicing problems differ per time frame as a result of radiation
+```{r}
+t.model3.3 <- lmerTest::lmer (Tiltint.c ~ Group * Man_Plc * Voiced +
+                     (1 + Voiced|Speaker) + (1 + Voiced|Time),
+                    data = dat,
+                    REML = T,
+                    lmerControl(optimizer = "bobyqa", 
+                                optCtrl = list(maxfun = 100000)))
+anova(t.model3.2, t.model3.3, refit = F) # Improves the model, model 3.3 is our final model
+```
+
+## Check assumptions
+```{r}
+# Model 3.3: Triple interaction
+# Tiltint.c ~ Group * Man_Plc * Voiced
+par(mfrow = c(2, 2))
+acf(resid(t.model3.3)) # Good
+car::vif(t.model3.3) # Very strong VIF for Man_Plc and its interactions -> is it purely driven by the interactions?
+plot(resid(t.model3.3), fitted(t.model3.3)) # some tails but OK?
+qqnorm(resid(t.model3.3)) # Small tails on both sides
+qqline(resid(t.model3.3)) 
+
+#Check whether the high VIF is driven by the interactions:
+car::vif(t.model2) # All good
+```
+
+### Remove unused models
+First remove the unused models:
+```{r}
+remove(t.model, t.model1, t.model2, t.model3, t.model3.1, t.model3.2)
+```
+
+
+# 6. Duration
+This model explores whether the duration of consonants differs between pathological and typical speakers when controlling for place, manner and voicing.
+```{r}
+duration.model <- lmerTest::lmer (Duration.c ~ Group + Man_Plc + Voiced + 
+                                    (1|Speaker), 
+                            data = dat, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+```
+
+### Add interaction between Group and Man_Plc
+```{r}
+duration.model2 <- lmerTest::lmer (Duration.c ~ Group * Man_Plc + Voiced + 
+                                    (1|Speaker), 
+                            data = dat, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+
+anova(duration.model, duration.model2, refit = T) # Model 2 is preferred
+```
+
+### Add interaction between Group and Voicing
+```{r}
+duration.model3 <- lmerTest::lmer (Duration.c ~ Group * Man_Plc + Voiced * Group + 
+                                    (1|Speaker), 
+                            data = dat, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+
+anova(duration.model2, duration.model3, refit = T) # Interaction is necessary
+```
+
+### Add triple interaction
+```{r}
+duration.model4 <- lmerTest::lmer (Duration.c ~ Group * Man_Plc * Voiced + 
+                                    (1|Speaker), 
+                            data = dat, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+
+anova(duration.model3, duration.model4, refit = T) # Interaction is necessary
+```
+### Add intercept for time
+```{r}
+duration.model4.1 <- lmerTest::lmer (Duration.c ~ Group * Man_Plc * Voiced + 
+                                    (1|Speaker) + (1|Time), 
+                            data = dat, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+
+anova(duration.model4, duration.model4.1, refit = F) # Intercept is necessary
+```
+
+### Add slope for voicing per speaker
+```{r}
+duration.model4.2 <- lmerTest::lmer (Duration.c ~ Group * Man_Plc * Voiced + 
+                                    (1 + Voiced|Speaker) + (1|Time), 
+                            data = dat, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+
+anova(duration.model4.1, duration.model4.2, refit = F) # Slope is necessary
+```
+
+### Add slope for voicing per time frame
+```{r}
+duration.model4.3 <- lmerTest::lmer (Duration.c ~ Group * Man_Plc * Voiced + 
+                                    (1 + Voiced|Speaker) + (1 + Voiced|Time), 
+                            data = dat, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+
+anova(duration.model4.2, duration.model4.3, refit = F) # Slope is necessary
+```
+
+## Assumptions of the final model
+```{r}
+par(mfrow = c(2, 2))
+acf(resid(duration.model4.3)) # OK
+car::vif(duration.model4.3) # Man_Plc and the interactions show VIF > 5
+plot(resid(duration.model4.3), fitted(duration.model4.3)) # very bad
+qqnorm(resid(duration.model4.3)) # Right tail
+qqline(resid(duration.model4.3))
+
+#Check whether this is due to the interactions
+car::vif(duration.model) # VIF < 1.2 so it is fine
+```
+
+### Check outlier influence by trimming the residuals
+```{r}
+duration2 <- dat[abs(scale(resid(duration.model4.3))) < 2, ]
+
+(1 - (nrow(duration2))/nrow(dat)) * 100  # 3.10% removed
+duration.model4.3.V2 <- lmerTest::lmer (Duration.c ~ Group * Man_Plc * Voiced + 
+                                    (1 + Voiced|Speaker) + (1 + Voiced|Time), 
+                            data = duration2, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+par(mfrow = c(2, 2))
+acf(resid(duration.model4.3.V2)) # OK
+car::vif(duration.model4.3.V2) # OK (as determined by the other comparison)
+plot(resid(duration.model4.3.V2), fitted(duration.model4.3.V2)) #OK
+qqnorm(resid(duration.model4.3.V2)) # Reasonably OK
+qqline(resid(duration.model4.3.V2))
+```
+
+### Remove unused models
+```{r}
+rm(duration.model, duration.model2, duration.model3, duration.model4, duration.model4.1, duration.model4.2, duration.model4.3)
+```
+
+# 7. Burst frequency
+This model explores whether the burst frequency of plosives differs per phone group when controlling for voicing.
+
+## Hypothesis model
+```{r}
+bf.model <- lmerTest::lmer (COGint.c ~ Group * Man_Plc + Voiced + 
+                              (1|Speaker) + (1|Time), 
+                            data = plosives, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+```
+
+## Add interaction with Voiced
+Perhaps the BF is differentially affected by Voicing per phone group per group
+```{r}
+bf.model1 <- lmerTest::lmer (COGint.c ~ Group * Man_Plc * Voiced + 
+                              (1|Speaker) + (1|Time), 
+                            data = plosives, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+anova(bf.model, bf.model1, refit = T) # Interaction is necessary
+```
+
+## Add a random slope for Voiced per speaker
+```{r}
+bf.model1.1 <- lmerTest::lmer (COGint.c ~ Group * Man_Plc * Voiced + 
+                              (1 + Voiced|Speaker) + (1|Time), 
+                            data = plosives, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+anova(bf.model1, bf.model1.1, refit = F) # Slope is necessary
+```
+
+## Slope for voiced per time
+```{r}
+bf.model1.2 <- lmerTest::lmer (COGint.c ~ Group * Man_Plc * Voiced + 
+                              (1 + Voiced|Speaker) + (1 + Voiced|Time), 
+                            data = plosives, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000))) 
+anova(bf.model1.1, bf.model1.2) # Slope is necessary --> bf.model1.2 is our final model
+```
+## Check assumptions
+```{r}
+par(mfrow = c(2, 2))
+acf(resid(bf.model1.2)) # OK
+car::vif(bf.model1.2) # Group and Voiced show some VIF, check whether this is due to interactions
+car::vif(bf.model) # VIF is fine
+plot(resid(bf.model1.2), fitted(bf.model1.2)) # some heteroscedasticity
+qqnorm(resid(bf.model1.2)) # Right tail
+qqline(resid(bf.model1.2)) 
+```
+## Assess influence of outliers on normality of residuals and heteroscedasticity
+### Refit model with trimmed residuals
+```{r}
+plosives2 <- plosives[abs(scale(resid(bf.model1.2))) < 2, ]
+
+(1 - (nrow(plosives2))/nrow(plosives)) * 100  # 5.7% removed
+bf.model1.2.v2 <- lmerTest::lmer (COGint.c ~ Group * Man_Plc * Voiced + 
+                              (1 + Voiced|Speaker) + (1 + Voiced|Time), 
+                            data = plosives2, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000))) 
+summary(bf.model1.2)$coef
+summary(bf.model1.2.v2)$coef
+```
+
+### Check assumptions
+Problems of the residuals and heteroscedasticity are still not solved.
+```{r}
+par(mfrow = c(2, 2))
+acf(resid(bf.model1.2.v2)) # OK
+car::vif(bf.model1.2.v2) # Group and Voiced show some VIF
+plot(resid(bf.model1.2.v2), fitted(bf.model1.2.v2)) # some heteroscedasticity
+qqnorm(resid(bf.model1.2.v2)) # Right tail
+qqline(resid(bf.model1.2.v2))
+```
+## Refit model with a square-root-transformation
+```{r}
+# Log-transform BF data
+plosives$COGint.sqrt <- sqrt(plosives$COGint)
+plosives$COGint.log <- log(plosives$COGint)
+
+#Compare distributions
+par(mfrow = c(2, 2))
+qqPlot(plosives$COGint.sqrt, main = "SQRT")
+qqPlot(plosives$COGint, main = "Original")
+qqPlot(plosives$COGint.log, main = "LOG")
+
+#Recentre
+plosives$COGint.sqrt.c <- scale(plosives$COGint.sqrt, scale = FALSE)
+plosives$COGint.log.c <- scale(plosives$COGint.log, scale = FALSE)
+
+#Refit the model
+sqrt.bf.model1 <- lmerTest::lmer (COGint.sqrt.c ~ Group * Man_Plc * Voiced + 
+                              (1 + Voiced|Speaker) + (1 + Voiced|Time), 
+                            data = plosives, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+```
+
+### Check assumptions
+```{r}
+par(mfrow = c(2, 2))
+acf(resid(sqrt.bf.model1)) # OK
+car::vif(sqrt.bf.model1) # OK
+plot(resid(sqrt.bf.model1), fitted(sqrt.bf.model1)) # OK
+qqnorm(resid(sqrt.bf.model1)) # OK
+qqline(resid(sqrt.bf.model1))
+
+```
+
+As the residuals of the non-transformed burst-frequency models were not normally distributed and showed forms of heteroscedasticity, we will report on the sqrt transformed model.
+
+### Remove other models
+```{r}
+rm(bf.model, bf.model1, bf.model1.1, bf.model1.2, bf.model1.2.v2)
+```
+
+
+# 8. Spectral mean
+This model explores whether the spectral mean of fricatives differs per phone group when controlling for voicing.
+## Hypothesis model
+```{r}
+cog.model <- lmerTest::lmer (COGmean.c ~ Group * Man_Plc + Voiced + 
+                               (1|Speaker) + (1|Time), 
+                            data = fricatives, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa",
+                                        optCtrl = list(maxfun = 100000)))
+```
+
+## Add interaction with voicing
+```{r}
+cog.model1 <- lmerTest::lmer (COGmean.c ~ Group * Man_Plc * Voiced + 
+                               (1|Speaker) + (1|Time), 
+                            data = fricatives, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+
+anova(cog.model, cog.model1, refit = T) # Interaction is necessary
+```
+
+## Add slope for voiced per speaker
+```{r}
+cog.model1.1 <- lmerTest::lmer (COGmean.c ~ Group * Man_Plc * Voiced + 
+                               (1+ Voiced|Speaker) + (1|Time), 
+                            data = fricatives, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+
+anova(cog.model1, cog.model1.1, refit = F) # Slope is necessary
+```
+
+## Add slope for voiced per time frame
+```{r}
+cog.model1.2 <- lmerTest::lmer (COGmean.c ~ Group * Man_Plc * Voiced + 
+                               (1+ Voiced|Speaker) + (1 + Voiced|Time), 
+                            data = fricatives, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+
+anova(cog.model1.1, cog.model1.2, refit = F) # Slope is necessary and also our final model
+```
+
+## Check assumptions
+```{r}
+par(mfrow = c(2, 2))
+acf(resid(cog.model1.2)) # OK
+car::vif(cog.model1.2) # Man_Plc and interactions show high VIF
+car::vif(cog.model) # High VIF is due to interactions, so it's fine
+plot(resid(cog.model1.2), fitted(cog.model1.2)) # some heteroscedasticity
+qqnorm(resid(cog.model1.2)) # Small tails on both sides
+qqline(resid(cog.model1.2))
+```
+
+## Assess outlier influence on normality of residuals and heteroscedasticity
+### Refit model
+```{r}
+fricatives2 <- fricatives[abs(scale(resid(cog.model1.2))) < 2, ]
+
+(1 - (nrow(fricatives2))/nrow(fricatives)) * 100  # 5.2% removed
+cog.model1.2.v2 <- lmerTest::lmer (COGmean.c ~ Group * Man_Plc * Voiced + 
+                               (1+ Voiced|Speaker) + (1 + Voiced|Time), 
+                            data = fricatives2, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+```
+### Check assumptions
+```{r}
+par(mfrow = c(2, 2))
+acf(resid(cog.model1.2.v2)) # OK
+plot(resid(cog.model1.2.v2), fitted(cog.model1.2.v2)) # still some heteroscedasticity but fine
+qqnorm(resid(cog.model1.2.v2)) # Small tails on right side
+qqline(resid(cog.model1.2.v2))
+```
+## Refit model with a square-root transformation
+```{r}
+#Transformations
+fricatives$COGmean.sqrt <- sqrt(fricatives$COGmean)
+fricatives$COGmean.log <- log(fricatives$COGmean)
+
+#Compare distributions
+par(mfrow = c(2, 2))
+qqPlot(fricatives$COGmean.sqrt, main = "SQRT") # Slope of the tail seems steeper, so we'll try this.
+qqPlot(fricatives$COGmean, main = "Original")
+qqPlot(fricatives$COGmean.log, main = "LOG")
+
+# Recentre
+fricatives$COGmean.sqrt.c <- scale(fricatives$COGmean.sqrt, scale = FALSE)
+fricatives$COGmean.log.c <- scale(fricatives$COGmean.log, scale = FALSE)
+
+#Refit
+sqrt.cog.model1.2 <- lmerTest::lmer (COGmean.sqrt.c ~ Group * Man_Plc * Voiced + 
+                               (1+ Voiced|Speaker) + (1 + Voiced|Time), 
+                            data = fricatives, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+```
+
+### Check assumptions and compare to original
+```{r}
+par(mfrow = c(2, 2))
+acf(resid(sqrt.cog.model1.2)) # OK
+plot(resid(sqrt.cog.model1.2), fitted(sqrt.cog.model1.2)) # OK
+qqnorm(resid(sqrt.cog.model1.2)) # Tails on both sides now
+qqline(resid(sqrt.cog.model1.2))
+
+par(mfrow = c(2, 2))
+acf(resid(cog.model1.2.v2)) # OK
+plot(resid(cog.model1.2.v2), fitted(cog.model1.2.v2)) # OK
+qqnorm(resid(cog.model1.2.v2)) # Small tail on right side
+qqline(resid(cog.model1.2.v2))
+```
+
+As the transformed data resulted in tails on both sides and trimming the residuals did not help, we'll use the original model
+
+### Remove other models
+```{r}
+rm(cog.model, cog.model1, cog.model1.1, cog.model1.2, sqrt.cog.model1.2)
+```
+
+
+# 9. Skewness
+## Hypothesis model
+This model explores whether the spectral skewness of fricatives differs per phone group when controlling for voicing.
+```{r}
+skew.model <- lmerTest::lmer (Skewmean.c ~ Group * Man_Plc + Voiced + 
+                               (1|Speaker) + (1|Time), 
+                            data = fricatives, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa",
+                                        optCtrl = list(maxfun = 100000)))
+```
+
+## Add interaction with voicing
+```{r}
+skew.model1 <- lmerTest::lmer (Skewmean.c ~ Group * Man_Plc * Voiced + 
+                               (1|Speaker) + (1|Time), 
+                            data = fricatives, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa",
+                                        optCtrl = list(maxfun = 100000)))
+
+anova(skew.model, skew.model1, refit = T) # Interaction is necessary
+```
+
+## Add slope for voicing per speaker
+```{r}
+skew.model1.1 <- lmerTest::lmer (Skewmean.c ~ Group * Man_Plc * Voiced + 
+                               (1 + Voiced|Speaker) + (1|Time), 
+                            data = fricatives, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa",
+                                        optCtrl = list(maxfun = 100000)))
+anova(skew.model1, skew.model1.1, refit = F) # Slope is necessary
+```
+
+
+## Add slope for voicing per time frame
+```{r}
+skew.model1.2 <- lmerTest::lmer (Skewmean.c ~ Group * Man_Plc * Voiced + 
+                               (1 + Voiced|Speaker) + (1 + Voiced|Time), 
+                            data = fricatives, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa",
+                                        optCtrl = list(maxfun = 100000)))
+anova(skew.model1.1, skew.model1.2, refit = F) # Necessary and final model
+```
+
+## Check assumptions
+```{r}
+par(mfrow = c(2, 2))
+acf(resid(skew.model1.2)) # OK
+car::vif(skew.model1.2) # Man_Plc and interactions show high VIF
+car::vif(skew.model) # High VIF is due to interactions, so it's fine
+plot(resid(skew.model1.2), fitted(skew.model1.2)) # heteroscedastic
+qqnorm(resid(skew.model1.2)) # tails on both sides
+qqline(resid(skew.model1.2))
+```
+## Check outlier influence
+### Refit model
+```{r}
+skewness2 <- fricatives[abs(scale(resid(skew.model1.2))) < 2, ]
+
+(1 - (nrow(skewness2))/nrow(fricatives)) * 100  # 5.6% removed
+skew.model1.2.v2 <- lmerTest::lmer (Skewmean.c ~ Group * Man_Plc * Voiced + 
+                               (1+ Voiced|Speaker) + (1 + Voiced|Time), 
+                            data = skewness2, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+```
+### Check assumptions again
+```{r}
+par(mfrow = c(2, 2))
+acf(resid(skew.model1.2.v2)) # OK
+plot(resid(skew.model1.2.v2), fitted(skew.model1.2.v2)) # OK
+qqnorm(resid(skew.model1.2.v2)) # OK!
+qqline(resid(skew.model1.2.v2))
+```
+
+
+# 10. Summaries of final models
+Here we'll plot all the final model summaries
+```{r}
+tidy.tilt <- tidy(t.model3.3, effects = "fixed", conf.int=TRUE) %>%
+    mutate(p.adjust = p.adjust(p.value, method = "fdr"))
+print(tidy.tilt, n = 40)
+
+tidy.duration <- tidy(duration.model4.3.V2, effects = "fixed", conf.int=TRUE) %>%
+    mutate(p.adjust = p.adjust(p.value, method = "fdr"))
+print(tidy.duration, n = 40)
+```
+
+# 11. Manual Multiple comparisons
+
+## 11.1 Burst frequency
+
+First, check the used reference level for the final model: sqrt.bf.model1
+```{r}
+levels(plosives$Man_Plc) # Alveolar plosives is reference level
+```
+
+### 11.1.1 Check which rows of the summary need to be extracted:
+
+- From the summary, row 2, 6, and 10 need to be extracted
+
+```{r}
+# summary(sqrt.bf.model1) # Uncomment to check
+summary(sqrt.bf.model1)$coefficients[2, 0:5] #Group-Typ+Path 
+summary(sqrt.bf.model1)$coefficients[6, 0:5] #Voiced-FALSE+TRUE
+summary(sqrt.bf.model1)$coefficients[10, 0:5] #Group-Typ+Path:Voiced-FALSE+TRUE
+
+```
+### 11.1.2 Refit with Bi_Pl as reference
+```{r}
+plosives$Man_Plc <- relevel(plosives$Man_Plc, ref = "Bi_Pl")
+bi_pl <- lmerTest::lmer (COGint.sqrt.c ~ Group * Man_Plc * Voiced + 
+                              (1 + Voiced|Speaker) + (1 + Voiced|Time), 
+                            data = plosives, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+
+#Worked
+# summary(bi_pl) # Uncomment to check
+summary(bi_pl)$coefficients[2, 0:5] #Group-Typ+Path 
+summary(bi_pl)$coefficients[6, 0:5] #Voiced-FALSE+TRUE
+summary(bi_pl)$coefficients[10, 0:5] #Group-Typ+Path:Voiced-FALSE+TRUE
+
+```
+
+### 11.1.2 Refit with PA_Af as reference
+
+```{r}
+plosives$Man_Plc <- relevel(plosives$Man_Plc, ref = "PA_Af")
+PA_Af <- lmerTest::lmer (COGint.sqrt.c ~ Group * Man_Plc * Voiced + 
+                              (1 + Voiced|Speaker) + (1 + Voiced|Time), 
+                            data = plosives, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+
+summary(PA_Af)$coefficients[2, 0:5] #Group-Typ+Path 
+summary(PA_Af)$coefficients[6, 0:5] #Voiced-FALSE+TRUE
+summary(PA_Af)$coefficients[10, 0:5] #Group-Typ+Path:Voiced-FALSE+TRUE
+```
+
+### 11.1.2 Refit with Ve_Pl as reference
+
+```{r}
+plosives$Man_Plc <- relevel(plosives$Man_Plc, ref = "Ve_Pl")
+Ve_Pl <- lmerTest::lmer (COGint.sqrt.c ~ Group * Man_Plc * Voiced + 
+                              (1 + Voiced|Speaker) + (1 + Voiced|Time), 
+                            data = plosives, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+
+summary(Ve_Pl)$coefficients[2, 0:5] #Group-Typ+Path 
+summary(Ve_Pl)$coefficients[6, 0:5] #Voiced-FALSE+TRUE
+summary(Ve_Pl)$coefficients[10, 0:5] #Group-Typ+Path:Voiced-FALSE+TRUE
+```
+
+
+## 11.2 Spectral mean
+
+- Rows 2, 7, and 12 need to be extracted
+
+```{r}
+levels(fricatives2$Man_Plc)
+
+#summary(cog.model1.2.v2) # Uncomment to check which rows need to be extracted
+
+
+# Values for the reference level: Al_Fr
+summary(cog.model1.2.v2)$coefficients[2, 0:5] #Group-Typ+Path 
+summary(cog.model1.2.v2)$coefficients[7, 0:5] #Voiced-FALSE+TRUE
+summary(cog.model1.2.v2)$coefficients[12, 0:5] #Group-Typ+Path:Voiced-FALSE+TRUE
+
+```
+
+### 11.2.1 Refit with De_Fr as reference
+```{r}
+fricatives2$Man_Plc <- relevel(fricatives2$Man_Plc, ref = "De_Fr")
+levels(fricatives2$Man_Plc)
+
+De_Fr<- lmerTest::lmer (COGmean.c ~ Group * Man_Plc * Voiced + 
+                               (1+ Voiced|Speaker) + (1 + Voiced|Time), 
+                            data = fricatives2, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+
+summary(De_Fr)$coefficients[2, 0:5] #Group-Typ+Path 
+summary(De_Fr)$coefficients[7, 0:5] #Voiced-FALSE+TRUE
+summary(De_Fr)$coefficients[12, 0:5] #Group-Typ+Path:Voiced-FALSE+TRUE
+```
+
+### 11.2.2 Refit with LD_Fr as reference
+```{r}
+fricatives2$Man_Plc <- relevel(fricatives2$Man_Plc, ref = "LD_Fr")
+levels(fricatives2$Man_Plc)
+
+LD_Fr<- lmerTest::lmer (COGmean.c ~ Group * Man_Plc * Voiced + 
+                               (1+ Voiced|Speaker) + (1 + Voiced|Time), 
+                            data = fricatives2, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+
+summary(LD_Fr)$coefficients[2, 0:5] #Group-Typ+Path 
+summary(LD_Fr)$coefficients[7, 0:5] #Voiced-FALSE+TRUE
+summary(LD_Fr)$coefficients[12, 0:5] #Group-Typ+Path:Voiced-FALSE+TRUE
+```
+
+### 11.2.3 Refit with PA_Af as reference
+```{r}
+fricatives2$Man_Plc <- relevel(fricatives2$Man_Plc, ref = "PA_Af")
+levels(fricatives2$Man_Plc)
+
+PA_Af.cog<- lmerTest::lmer (COGmean.c ~ Group * Man_Plc * Voiced + 
+                               (1+ Voiced|Speaker) + (1 + Voiced|Time), 
+                            data = fricatives2, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+
+summary(PA_Af.cog)$coefficients[2, 0:5] #Group-Typ+Path 
+summary(PA_Af.cog)$coefficients[7, 0:5] #Voiced-FALSE+TRUE
+summary(PA_Af.cog)$coefficients[12, 0:5] #Group-Typ+Path:Voiced-FALSE+TRUE
+```
+
+### 11.2.4 Refit with PA_Fr as reference
+```{r}
+fricatives2$Man_Plc <- relevel(fricatives2$Man_Plc, ref = "PA_Fr")
+levels(fricatives2$Man_Plc)
+
+PA_Fr <- lmerTest::lmer (COGmean.c ~ Group * Man_Plc * Voiced + 
+                               (1+ Voiced|Speaker) + (1 + Voiced|Time), 
+                            data = fricatives2, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+
+summary(PA_Fr)$coefficients[2, 0:5] #Group-Typ+Path 
+summary(PA_Fr)$coefficients[7, 0:5] #Voiced-FALSE+TRUE
+summary(PA_Fr)$coefficients[12, 0:5] #Group-Typ+Path:Voiced-FALSE+TRUE
+```
+
+
+
+## 11.3 Spectral skewness
+
+Row 2, 7 and 12 need to be extracted
+```{r}
+levels(skewness2$Man_Plc) #Al_Fr is reference level
+#summary(skew.model1.2.v2) #Uncomment to check
+
+summary(skew.model1.2.v2)$coefficients[2, 0:5] #Group-Typ+Path 
+summary(skew.model1.2.v2)$coefficients[7, 0:5] #Voiced-FALSE+TRUE
+summary(skew.model1.2.v2)$coefficients[12, 0:5] #Group-Typ+Path:Voiced-FALSE+TRUE
+```
+
+
+
+### 11.3.1 Refit with De_Fr as reference
+```{r}
+skewness2$Man_Plc <- relevel(skewness2$Man_Plc, ref = "De_Fr")
+levels(skewness2$Man_Plc)
+
+
+skew_De_Fr <- lmerTest::lmer (Skewmean.c ~ Group * Man_Plc * Voiced + 
+                               (1+ Voiced|Speaker) + (1 + Voiced|Time), 
+                            data = skewness2, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+
+summary(skew_De_Fr)$coefficients[2, 0:5] #Group-Typ+Path 
+summary(skew_De_Fr)$coefficients[7, 0:5] #Voiced-FALSE+TRUE
+summary(skew_De_Fr)$coefficients[12, 0:5] #Group-Typ+Path:Voiced-FALSE+TRUE
+```
+
+### 11.3.2 Refit with LD_Fr as reference
+```{r}
+skewness2$Man_Plc <- relevel(skewness2$Man_Plc, ref = "LD_Fr")
+levels(skewness2$Man_Plc)
+
+
+skew_LD_Fr <- lmerTest::lmer (Skewmean.c ~ Group * Man_Plc * Voiced + 
+                               (1+ Voiced|Speaker) + (1 + Voiced|Time), 
+                            data = skewness2, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+
+summary(skew_LD_Fr)$coefficients[2, 0:5] #Group-Typ+Path 
+summary(skew_LD_Fr)$coefficients[7, 0:5] #Voiced-FALSE+TRUE
+summary(skew_LD_Fr)$coefficients[12, 0:5] #Group-Typ+Path:Voiced-FALSE+TRUE
+```
+
+### 11.3.3 Refit with PA_Af as reference
+```{r}
+skewness2$Man_Plc <- relevel(skewness2$Man_Plc, ref = "PA_Af")
+levels(skewness2$Man_Plc)
+
+
+skew_PA_Af <- lmerTest::lmer (Skewmean.c ~ Group * Man_Plc * Voiced + 
+                               (1+ Voiced|Speaker) + (1 + Voiced|Time), 
+                            data = skewness2, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+
+summary(skew_PA_Af)$coefficients[2, 0:5] #Group-Typ+Path 
+summary(skew_PA_Af)$coefficients[7, 0:5] #Voiced-FALSE+TRUE
+summary(skew_PA_Af)$coefficients[12, 0:5] #Group-Typ+Path:Voiced-FALSE+TRUE
+```
+
+
+### 11.3.4 Refit with PA_Fr as reference
+```{r}
+skewness2$Man_Plc <- relevel(skewness2$Man_Plc, ref = "PA_Fr")
+levels(skewness2$Man_Plc)
+
+
+skew_PA_Fr <- lmerTest::lmer (Skewmean.c ~ Group * Man_Plc * Voiced + 
+                               (1+ Voiced|Speaker) + (1 + Voiced|Time), 
+                            data = skewness2, 
+                            REML = T, 
+                            lmerControl(optimizer = "bobyqa", 
+                                        optCtrl = list(maxfun = 100000)))
+
+summary(skew_PA_Fr)$coefficients[2, 0:5] #Group-Typ+Path 
+summary(skew_PA_Fr)$coefficients[7, 0:5] #Voiced-FALSE+TRUE
+summary(skew_PA_Fr)$coefficients[12, 0:5] #Group-Typ+Path:Voiced-FALSE+TRUE
+```
+

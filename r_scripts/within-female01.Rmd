@@ -1,0 +1,538 @@
+---
+title: "within-female01"
+author: "Thomas Tienkamp ^1^, Rob van Son ^2^^3^,  Bence Halpern ^2^^3^^4^ <br /> ^1^ Center for Language and Cognition Groningen, University of Groningen, Groningen, The Netherlands <br> ^2^ Amsterdam Center for Language and Communication, University of Amsterdam, Amsterdam, The Netherlands <br> ^3^ Netherlands Cancer Institute, Amsterdam, The Netherlands <br> ^4^ Multimedia Computing Group, Delft University of Technology, Delft, The Netherlands"
+date: "Last compiled on: `r date()`"
+output: 
+  html_document:
+    toc: true # table of content true
+    toc_depth: 3  # upto three depths of headings (specified by #, ## and ###)
+    number_sections: false  # if you want number sections at each table header
+    theme: united  # many options for theme, this one is my favorite.
+    highlight: tango  # specifies the syntax highlighting style
+    toc_float: TRUE
+---
+# 1. Description
+This code shows the within speaker analysis for female01 for both consonants and vowels belonging to the paper: Objective speech outcomes after surgical treatment for oral cancer: An acoustic analysis of a spontaneous speech corpus containing 32.850 tokens.
+
+The code is organised in subsections. Its headers specify the content of the chunk.
+
+## Table with the analysed consonants
+| Place →<br>Manner↓ | Bilabial | Labio- dental | Dental | Alveolar | Post- Alveolar | Velar |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| Plosive | /b/ /p/ |  |  | /t/ /d/ |  | /k/ /g/ |
+| Fricative |  | /f/ /v/ | /θ/ /ð/ | /s/ /z/ | /ʃ/ /ʒ/ |  |
+| Affricate |  |  |  | /tʃ/ /dʒ/ |  |  |
+
+## Table with the analysed vowels
+|      | Front | Mid | Back |   |   |   |
+|------|-------|-----|------|:-:|:-:|:-:|
+| High |/i/   |     | /u/  |   |   |   |
+| Mid  |       |     |      |   |   |   |
+| Low  |       |     | /a/  |   |   |   |
+
+# 2. Preliminaries
+## Width
+```{r, echo=TRUE}
+options(width = 180)
+```
+
+## Packages
+```{r}
+# Specify packages
+packages <- c("tidyverse", "lme4", "lmerTest", "visreg", "car", "multcomp", 
+              "emmeans", "boot", "gplots", "lattice", 
+              "sjPlot", "sjmisc", "broom")
+
+# Load packages or install if they're not installed yet
+package.check <- lapply(
+  packages,
+  FUN = function(x) {
+    if (!require(x, character.only = TRUE)) {
+      install.packages(x, dependencies = TRUE)
+      library(x, character.only = TRUE)
+    }
+  }
+)
+
+# Show package version
+for (package_name in packages) {
+    print(paste(package_name, packageVersion(package_name)))
+}
+```
+
+## Working directory
+```{r}
+# If working in the UWP
+#mywd <- "X:/My Desktop/all-projects/nki_youtube-phoneme/"
+#datawd <- paste0(mywd,"data/")
+
+#If working from home
+mywd <- "C:/Users/Thomas/Desktop/nki_youtube-phoneme/"
+datawd <- paste0(mywd,"data/")
+
+```
+
+## Load data and helper functions
+```{r}
+c.dat <- read.csv(paste0(datawd, "Analysed.Phonemes.csv"), sep=',', na.strings = "--undefined--")
+v.dat <- read.csv(paste0(datawd, "Analysed.Vowels.csv"), sep=',', na.strings = "--undefined--")
+
+# Load additional plotting functions
+source(paste0(mywd,"analysis/myFunctions2.R"))
+```
+
+## Filter out female01
+```{r}
+consonants <- c.dat %>%
+  filter(Speaker == "Female01")
+vowels <- v.dat %>%
+  filter(Speaker == "Female01")
+```
+
+# 3. Data manipulation
+## Change variable types
+```{r}
+str(consonants)
+
+# Time, Manner, Place, Voiced, Man_Plc need to be converted from character to factor
+cols1 <- c("Speaker", "Group", "Time", "Manner", "Place", "Voiced", "Man_Plc")
+consonants[cols1] <- lapply(consonants[cols1], as.factor)
+
+# COGint, Tiltint, COGmean, and Skewmean need to be converted from character to numerical
+cols2 <- c("COGint", "Tiltint", "COGmean", "Skewmean")
+consonants[cols2] <- lapply(consonants[cols2], as.numeric)
+
+str(vowels)
+# Time, Phoneme, Height, Front need to be converted from character to factor
+cols3 <- c("Speaker", "Time", "Phoneme", "Height", "Front")
+vowels[cols3] <- lapply(vowels[cols3], as.factor)
+
+# F1mid, F2mid, and F3mid need to be converted from character to numerical
+cols4 <- c("F1mid", "F2mid", "F3mid")
+vowels[cols4] <- lapply(vowels[cols4], as.numeric)
+
+str(vowels)
+str(consonants)
+```
+
+## Set factorial contrasts
+### Consonants
+```{r}
+# Set group contrast
+contrast <- cbind (c(-1/2, +1/2))
+colnames(contrast) <- c("-T1+T2") #-0.5 = Time 1, 0.5 = 2
+contrasts(consonants$Time) <- contrast
+contrasts(consonants$Time)
+
+# Set voicing contrast
+contrast <- cbind (c(-1/2, +1/2))
+colnames(contrast) <- c("-FALSE+TRUE") #-0.5 = Voiceless, 0.5 = Voiced
+contrasts(consonants$Voiced) <- contrast
+contrasts(consonants$Voiced)
+```
+
+### Vowels
+```{r}
+# Set group contrast
+contrast <- cbind (c(-1/2, +1/2))
+colnames(contrast) <- c("-T1+T2") #-0.5 = Time 0, 0.5 = T1
+contrasts(vowels$Time) <- contrast
+contrasts(vowels$Time)
+```
+
+## Filter plosives and fricatives
+Here, we'll filter the phonemes in terms of relevant acoustic parameters (burst frequency, spectral mean, spectral skewness). In general, this means a split between fricatives and plosives. All three parameters are analysed in affricates, so they are included in both selections.
+```{r}
+fricatives <- consonants %>%
+  filter(Manner != "Plosive") %>% # rather than manner == "Fricative" to also include the affricates
+  as.data.frame()
+fricatives <- droplevels(fricatives) # Drop unused factorial levels
+plosives <- consonants %>%
+  filter(Manner != "Fricative") %>% # rather than manner == "Plosive" to also include the affricates
+  as.data.frame()
+plosives <- droplevels(plosives) # Drop unused factorial levels
+```
+
+## Center numerical variables
+All numerical variables are centered around the mean. This is done over the whole dataset if the parameter is applicable to all phonemes (duration & tilt) or to the subsection.
+
+### Consonants
+```{r}
+# All data
+consonants$Tiltint.c <- scale(consonants$Tiltint, scale = FALSE)
+consonants$Duration.c <- scale(consonants$Duration, scale = FALSE)
+consonants$Duration.c <- consonants$Duration.c * 1000 #Turn into miliseconds
+
+# for plosives
+plosives$COGint.c <- scale(plosives$COGint, scale = FALSE)
+
+#For Fricatives
+fricatives$COGmean.c <- scale(fricatives$COGmean, scale = FALSE)
+fricatives$Skewmean.c <- scale(fricatives$Skewmean, scale = FALSE)
+
+```
+
+### Vowels
+```{r}
+vowels$F1mid.c <- scale(vowels$F1mid, scale = FALSE)
+vowels$F2mid.c <- scale(vowels$F2mid, scale = FALSE)
+```
+
+## Plot variables to get an idea of the distribution
+```{r}
+#All data
+par(mfrow = c(2, 2))
+boxplot(consonants$Tiltint.c)
+hist(consonants$Tiltint.c)
+boxplot(consonants$Duration.c)
+hist(consonants$Duration.c)
+
+# Plosives
+par(mfrow = c(1, 2))
+boxplot(plosives$COGint.c)
+hist(plosives$COGint.c) # Relatively strong positive skew
+
+#Fricatives
+par(mfrow = c(2, 2))
+boxplot(fricatives$COGmean.c)
+hist(fricatives$COGmean.c)
+boxplot(fricatives$Skewmean.c)
+hist(fricatives$Skewmean.c) # little positive skew
+
+#Vowels
+par(mfrow = c(2,2))
+hist(vowels$F1mid.c, main = "F1")
+hist(vowels$F2mid.c, main = "F2")
+qqPlot(vowels$F1mid.c, main = "F1")
+qqPlot(vowels$F2mid.c, main = "F2")
+```
+
+# 4. Check contrasts
+```{r}
+contrasts(vowels$Time)
+contrasts(consonants$Time)
+contrasts(consonants$Voiced)
+```
+
+# 5. Consonant: tilt
+## 5.1 Models
+```{r}
+t0 <- lm(Tiltint.c ~ Time + Man_Plc + Voiced, data = consonants)
+t1 <- lm(Tiltint.c ~ Time * Man_Plc + Voiced, data = consonants)
+t2 <- lm(Tiltint.c ~ Time + Man_Plc * Voiced, data = consonants)
+t3 <- lm(Tiltint.c ~ Time * Man_Plc * Voiced, data = consonants)
+AIC(t0) - AIC(t1) # not Better
+AIC(t0) - AIC(t2) # Better
+AIC(t2) - AIC(t3) #Not better
+```
+
+## 5.2 Assumptions
+```{r fig.width=12, fig.height=7}
+par(mfrow = c(1, 3))
+acf(resid(t2)) # Good
+plot(resid(t2), fitted(t2)) #OK
+qqnorm(resid(t2)) # OK
+qqline(resid(t2)) 
+```
+
+
+# 6. Consonant: duration
+## 6.1 Models
+```{r}
+d0 <- lm(Duration.c ~ Time + Man_Plc + Voiced, data = consonants)
+d1 <- lm(Duration.c ~ Time * Man_Plc + Voiced, data = consonants)
+AIC(d0) - AIC(d1) # Interaction is unnecessary
+d2 <- lm(Duration.c ~ Time + Man_Plc * Voiced, data = consonants)
+AIC(d1) - AIC(d2) # Interaction is unnecessary
+d3 <- lm(Duration.c ~ Time * Man_Plc * Voiced, data = consonants)
+AIC(d0) - AIC(d3) # Interaction is unnecessary
+
+```
+
+## 6.2 Assumptions
+```{r fig.width=12, fig.height=7}
+par(mfrow = c(1, 3))
+acf(resid(d0)) # Good
+plot(resid(d0), fitted(d0)) #OK
+qqnorm(resid(d0)) # Tail
+qqline(resid(d0)) 
+
+```
+
+## 6.3 Refit with residuals
+```{r fig.width=12, fig.height=7}
+duration2 <- consonants[abs(scale(resid(d0))) < 2, ]
+
+(1 - (nrow(duration2))/nrow(consonants)) * 100  # 4.4% removed
+d0v2 <- lm(Duration.c ~ Time + Man_Plc + Voiced, data = duration2)
+
+par(mfrow = c(1, 3))
+acf(resid(d0v2)) # Good
+plot(resid(d0v2), fitted(d0v2)) #OK
+qqnorm(resid(d0v2)) # Better and OK-ish
+qqline(resid(d0v2))
+```
+
+# 7. Plosives: burst frequency
+## 7.1 Models
+```{r}
+b1 <- lm(COGint.c ~ Time * Man_Plc + Voiced, data = plosives)
+b2 <- lm(COGint.c ~ Time * Man_Plc * Voiced, data = plosives)
+AIC(b1) - AIC(b2) # Better
+```
+
+## 7.2 Assumptions
+```{r fig.width=12, fig.height=7}
+par(mfrow = c(1, 3))
+acf(resid(b2)) # Good
+plot(resid(b2), fitted(b2)) #OK
+qqnorm(resid(b2)) #Tails
+qqline(resid(b2))
+```
+
+```{r}
+plosives2 <- plosives[abs(scale(resid(b2))) < 2.2, ]
+
+(1 - (nrow(plosives2))/nrow(plosives)) * 100  # 4.6% removed
+b2v2 <- lm(COGint.c ~ Time * Man_Plc * Voiced, data = plosives2)
+
+par(mfrow = c(1, 3))
+acf(resid(b2v2)) # Good
+plot(resid(b2v2), fitted(b2v2)) #OK-ish
+qqnorm(resid(b2v2)) # Better and OK-ish
+qqline(resid(b2v2))
+```
+
+
+# 8. Fricatives: spectral mean
+## 8.1 Models
+```{r}
+sm1 <- lm(COGmean.c ~ Time * Man_Plc + Voiced, data = fricatives)
+sm2 <- lm(COGmean.c ~ Time * Man_Plc * Voiced, data = fricatives)
+
+AIC(sm1) - AIC(sm2) # Not - Better
+
+```
+
+## 8.2 Assumptions
+```{r fig.width=12, fig.height=7}
+par(mfrow = c(1, 3))
+acf(resid(sm1)) # Good
+plot(resid(sm1), fitted(sm1)) #Not ok
+qqnorm(resid(sm1)) #Some tails
+qqline(resid(sm1))
+```
+
+## 8.3 Refit with trimmed residuals
+```{r fig.width=12, fig.height=7}
+cog2 <- fricatives[abs(scale(resid(sm1))) < 2.01, ]
+
+(1 - (nrow(cog2))/nrow(fricatives)) * 100  # 4.77% removed
+sm1v2 <- lm(COGmean.c ~ Time * Man_Plc + Voiced, data = cog2)
+
+par(mfrow = c(1, 3))
+acf(resid(sm1v2)) # Good
+plot(resid(sm1v2), fitted(sm1v2)) #Better
+qqnorm(resid(sm1v2)) # Better
+qqline(resid(sm1v2))
+```
+
+
+# 9. fricatives: skewness
+##  9.1 Models
+```{r}
+sk1 <- lm(Skewmean.c ~ Time * Man_Plc + Voiced, data = fricatives)
+sk2 <- lm(Skewmean.c ~ Time * Man_Plc * Voiced, data = fricatives)
+
+AIC(sk1) - AIC(sk2) # Better
+```
+
+##  9.2 Assumptions
+```{r fig.width=12, fig.height=7}
+par(mfrow = c(1, 3))
+acf(resid(sk2)) # Good
+plot(resid(sk2), fitted(sk2)) #Not ok
+qqnorm(resid(sk2)) #Heavy tail
+qqline(resid(sk2))
+```
+## 9.3 Refit with trimmed residuals
+```{r fig.width=12, fig.height=7}
+skew2 <- fricatives[abs(scale(resid(sk2))) < 2.2, ]
+
+(1 - (nrow(skew2))/nrow(fricatives)) * 100  # 5.9% removed
+sk2v2 <- lm(Skewmean.c ~ Time * Man_Plc * Voiced, data = skew2)
+
+par(mfrow = c(1, 3))
+acf(resid(sk2v2)) # Good
+plot(resid(sk2v2), fitted(sk2v2)) # OK
+qqnorm(resid(sk2v2)) # Still not good.
+qqline(resid(sk2v2))
+```
+
+## 9.4 Refit with transformed data
+```{r}
+fricatives$Skewmean.log <- log(fricatives$Skewmean)
+fricatives$Skewmean.sqrt <- sqrt(fricatives$Skewmean)
+fricatives$Skewmean.log.c <- scale(fricatives$Skewmean.log, scale = FALSE)
+fricatives$Skewmean.sqrt.c <- scale(fricatives$Skewmean.sqrt, scale = FALSE)
+
+par(mfrow = c(1, 3))
+qqPlot(fricatives$Skewmean, main = "OG")
+qqPlot(fricatives$Skewmean.log.c, main = "LOG")
+qqPlot(fricatives$Skewmean.sqrt.c, main = "SQRT") # Seems good as it was a right tail
+```
+
+```{r}
+sk.sqrt <- lm(Skewmean.sqrt.c ~ Time * Man_Plc * Voiced, data = fricatives)
+
+par(mfrow = c(1, 3))
+acf(resid(sk.sqrt)) # Good
+plot(resid(sk.sqrt), fitted(sk.sqrt)) # OK
+qqnorm(resid(sk.sqrt)) # Better
+qqline(resid(sk.sqrt))
+```
+
+# 10. vowels: F1
+##  10.1 Model
+```{r}
+f1 <- lm(F1mid.c ~ Time * Phoneme, data = vowels)
+```
+
+##  10.2 Assumptions
+```{r fig.width=12, fig.height=7}
+par(mfrow = c(1, 3))
+acf(resid(f1)) # Good
+plot(resid(f1), fitted(f1)) # OK as there are two differences in height
+qqnorm(resid(f1)) # Outliers
+qqline(resid(f1))
+```
+
+## 10.3 Trimmed residuals
+
+```{r}
+firstf2 <- vowels[abs(scale(resid(f1))) < 1.65, ]
+
+(1 - (nrow(firstf2))/nrow(vowels)) * 100  # 4.85% removed
+f1v2 <- lm(F1mid.c ~ Time * Phoneme, data = firstf2)
+
+par(mfrow = c(1, 3))
+acf(resid(f1v2)) # Good
+plot(resid(f1v2), fitted(f1v2)) # OK
+qqnorm(resid(f1v2)) # Better
+qqline(resid(f1v2))
+```
+
+
+# 11. vowels: F2
+## 11.1 Models
+```{r}
+f2 <- lm(F2mid.c ~ Time * Phoneme, data = vowels)
+```
+
+## 11.2 Assumptions
+```{r fig.width=12, fig.height=7}
+par(mfrow = c(1, 3))
+acf(resid(f2)) # Good
+plot(resid(f2), fitted(f2)) # OK as there are two differences in height
+qqnorm(resid(f2)) # Some outliers
+qqline(resid(f2))
+```
+## 11.3 Refit with trimmed residuals
+```{r fig.width=12, fig.height=7}
+secondf2 <- vowels[abs(scale(resid(f2))) < 2.5, ]
+
+(1 - (nrow(secondf2))/nrow(vowels)) * 100  # 2.91% removed
+f2v2 <- lm(F2mid.c ~ Time * Phoneme, data = secondf2)
+
+par(mfrow = c(1, 3))
+acf(resid(f2v2)) # Good
+plot(resid(f2v2), fitted(f2v2)) # OK
+qqnorm(resid(f2v2)) # Better
+qqline(resid(f2v2))
+```
+
+
+# 12. Summaries of final models
+```{r}
+tidy.tilt <- tidy(t2, conf.int = T) %>%
+  mutate(p.adjust = p.adjust(p.value, method = "fdr"))
+tidy.duration <- tidy(d0v2, conf.int = T) %>%
+  mutate(p.adjust = p.adjust(p.value, method = "fdr"))
+
+print(tidy.tilt, n = 40)
+options(width = 200)
+print(tidy.duration, n = 40)
+
+bf_sum <- emmeans(b2v2, list(pairwise~Time|Man_Plc|Voiced), adjust = "fdr")
+cog_sum <- emmeans(sm1v2, list(pairwise~Time|Man_Plc), adjust = "fdr")
+skew_sum <- emmeans(sk.sqrt, list(pairwise~Time|Man_Plc|Voiced), adjust = "fdr")
+f1sum <- emmeans(f1v2, list(pairwise~Time|Phoneme), adjust = "fdr")
+f2sum <- emmeans(f2v2, list(pairwise~Time|Phoneme), adjust = "fdr")
+
+bf_sum
+cog_sum
+skew_sum
+f1sum
+f2sum
+```
+
+# 13. Visualise significant effects
+```{r}
+bfplot <- visreg(b2v2, "Time", 
+       by = "Man_Plc",
+       overaly = TRUE,
+       gg=TRUE) + 
+  scale_fill_brewer(palette="Paired") + 
+  theme_minimal()
+print(bfplot)
+
+smplot <- visreg(sm1v2, "Time", 
+       by = "Man_Plc",
+       overaly = TRUE,
+       gg=TRUE) + 
+  scale_fill_brewer(palette="Paired") + 
+  theme_minimal()
+print(smplot)
+
+skplot <- visreg(sk.sqrt, "Time", 
+       by = "Man_Plc",
+       overaly = TRUE,
+       gg=TRUE) + 
+  scale_fill_brewer(palette="Paired") + 
+  theme_minimal()
+print(skplot)
+```
+
+# 14. Visualise non-significant effects
+```{r}
+f1plot <- visreg(f1v2, "Time", 
+       by = "Phoneme",
+       overaly = TRUE,
+       gg=TRUE) + 
+  scale_fill_brewer(palette="Paired") + 
+  theme_minimal()
+print(f1plot)
+
+f2plot <- visreg(f2v2, "Time", 
+       by = "Phoneme",
+       overaly = TRUE,
+       gg=TRUE) + 
+  scale_fill_brewer(palette="Paired") + 
+  theme_minimal()
+print(f2plot)
+
+durplot <- visreg(d0v2, "Time",
+       overaly = TRUE,
+       gg=TRUE) + 
+  scale_fill_brewer(palette="Paired") + 
+  theme_minimal()
+print(durplot)
+
+tiltplot <- visreg(t2, "Time",
+       overaly = TRUE,
+       gg=TRUE) + 
+  scale_fill_brewer(palette="Paired") + 
+  theme_minimal()
+print(tiltplot)
+```
+

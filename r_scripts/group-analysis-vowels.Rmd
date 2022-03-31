@@ -1,0 +1,330 @@
+---
+title: "Group analysis: Vowels"
+author: "Thomas Tienkamp ^1^, Rob van Son ^2^^3^,  Bence Halpern ^2^^3^^4^ <br> <br> ^1^ Center for Language and Cognition Groningen, University of Groningen, Groningen, The Netherlands <br> ^2^ Amsterdam Center for Language and Communication, University of Amsterdam, Amsterdam, The Netherlands <br> ^3^ Netherlands Cancer Institute, Amsterdam, The Netherlands <br> ^4^ Multimedia Computing Group, Delft University of Technology, Delft, The Netherlands"
+date: "Last compiled on: `r date()`"
+output: 
+  html_document:
+    toc: true # table of content true
+    toc_depth: 3  # upto three depths of headings (specified by #, ## and ###)
+    number_sections: false  # if you want number sections at each table header
+    theme: united  # many options for theme, this one is my favorite.
+    highlight: tango  # specifies the syntax highlighting style
+    toc_float: TRUE
+---
+
+# 1. Description
+This code shows the group analysis for the corner vowels belonging to the paper: Objective speech outcomes after surgical treatment for oral cancer: An acoustic analysis of a spontaneous speech corpus containing 32.850 tokens.
+
+The code is organised in subsections. Its headers specify the content of the chunk.
+
+## Table with the analysed phones
+|      | Front | Mid | Back |   |   |   |
+|------|-------|-----|------|:-:|:-:|:-:|
+| High | /i/   |     | /u/  |   |   |   |
+| Mid  |       |     |      |   |   |   |
+| Low  |       |     | /a/  |   |   |   |
+
+
+# 2. Preliminaries
+## Width
+```{r, echo=TRUE}
+options(width = 180)
+```
+
+## Packages
+```{r}
+# Specify packages
+packages <- c("tidyverse", "lme4", "lmerTest", "visreg", "car", "multcomp", 
+              "emmeans", "boot", "gplots", "lattice", 
+              "sjPlot", "sjmisc", "ggpubr")
+
+# Load packages or install if they're not installed yet
+package.check <- lapply(
+  packages,
+  FUN = function(x) {
+    if (!require(x, character.only = TRUE)) {
+      install.packages(x, dependencies = TRUE)
+      library(x, character.only = TRUE)
+    }
+  }
+)
+
+# Show package version
+for (package_name in packages) {
+    print(paste(package_name, packageVersion(package_name)))
+}
+```
+
+## Working directory
+```{r}
+# If working in the UWP
+#mywd <- "X:/My Desktop/all-projects/nki_youtube-phoneme/"
+#datawd <- paste0(mywd,"data/")
+
+#If working from home
+mywd <- "C:/Users/Thomas/Desktop/nki_youtube-phoneme/"
+datawd <- paste0(mywd,"data/")
+
+```
+
+## Load data and helper functions
+```{r}
+dat <- read.csv(paste0(datawd, "Analysed.Vowels.csv"), sep=',', na.strings = "--undefined--")
+
+# Load additional plotting functions
+source(paste0(mywd,"analysis/myFunctions2.R"))
+```
+
+# 3. Data exploration
+## Check and change variable types
+```{r}
+#Check variable types
+str(dat)
+head(dat)
+
+# Speaker, Group, Time, Phoneme, Height, Front need to be converted from character to factor
+cols <- c("Speaker", "Group", "Time", "Phoneme", "Height", "Front")
+dat[cols] <- lapply(dat[cols], as.factor)
+
+# F1mid, F2mid, and F3mid need to be converted from character to numerical
+cols2 <- c("F1mid", "F2mid", "F3mid")
+dat[cols2] <- lapply(dat[cols2], as.numeric)
+
+#Check
+str(dat) # Looks good
+summary(dat)
+```
+## Get Frequency tables
+We'll visualise how many instances there are of each phoneme per Group.
+```{r}
+frequency_table <- dat %>%
+  group_by(Group, Phoneme) %>%
+  count()
+frequency_table
+```
+
+## Center numerical variables
+All numerical variables are centered around the mean.
+```{r}
+dat$F1mid.c <- scale(dat$F1mid, scale = FALSE)
+dat$F2mid.c <- scale(dat$F2mid, scale = FALSE)
+dat$F3mid.c <- scale(dat$F3mid, scale = FALSE)
+```
+
+## Plot numerical variables
+All numerical variables are plotted to visualise the distribution
+```{r}
+par(mfrow = c(2,3))
+hist(dat$F1mid.c, main = "F1")
+hist(dat$F2mid.c, main = "F2")
+hist(dat$F3mid.c, main = "F3")
+qqPlot(dat$F1mid.c, main = "F1") # Potentially problematic
+qqPlot(dat$F2mid.c, main = "F2")
+qqPlot(dat$F3mid.c, main = "F3")
+
+boxplot(dat$F1mid) # Are these outliers produced by one group?
+f1check <- dat %>%
+  filter(F1mid > 1000) %>%
+  group_by(Group, Phoneme) %>%
+  count()
+f1check # Equally divided between groups if sample size is taken into account
+
+f1.plot <- ggplot(dat, 
+       mapping = aes(x = Phoneme, y = F1mid, fill = Group),
+       na.rm = TRUE) +
+    geom_jitter(aes(colour = Group),
+                alpha = 0.3) +
+  theme_minimal()
+
+f2.plot <- ggplot(dat, 
+       mapping = aes(x = Phoneme, y = F2mid, fill = Group),
+       na.rm = TRUE) +
+    geom_jitter(aes(colour = Group),
+                alpha = 0.3) +
+  theme_minimal()
+
+ggarrange(f1.plot, f2.plot,
+          ncol = 2,
+          nrow = 1,
+          common.legend = TRUE,
+          widths = 10)
+```
+
+## Remove F1 outliers
+```{r}
+dat <- dat %>%
+  dplyr::filter(Phoneme %in% c("i", "u") & F1mid <= 1000 | Phoneme == "a")
+
+par(mfrow = c(1,2))
+hist(dat$F1mid.c, main = "F1")
+qqPlot(dat$F1mid.c, main = "F1") # Potentially problematic
+```
+
+
+## Log-transform
+```{r}
+dat$F1mid.log <- log(dat$F1mid)
+dat$F2mid.log <- log(dat$F2mid)
+dat$F1mid.sqrt <- sqrt(dat$F1mid)
+dat$F2mid.sqrt <- sqrt(dat$F2mid)
+
+# Check distribution again
+par(mfrow = c(2,2))
+qqPlot(dat$F1mid.log, main = "F1 LOG") # Looks good
+qqPlot(dat$F2mid.log, main = "F2 LOG")
+qqPlot(dat$F1mid.sqrt, main = "F1 SQRT")
+qqPlot(dat$F2mid.sqrt, main = "F2 SQRT") 
+
+# Recentre both log transformations
+dat$F1mid.log.c <- scale(dat$F1mid.log, scale = FALSE)
+dat$F2mid.log.c <- scale(dat$F2mid.log, scale = FALSE)
+
+```
+
+
+# 4. Set and change necessary contrasts
+Orthogonal sum-to-zero contrasts are applied to binary factorial predictors
+```{r}
+# Set group contrast
+contrast <- cbind (c(+1/2, -1/2))
+colnames(contrast) <- c("-Typ+Path") #-0.5 = Typical, 0.5 = Pathological
+contrasts(dat$Group) <- contrast
+contrasts(dat$Group)
+```
+
+
+# 5. Model for F1
+```{r}
+f1.model <- lmerTest::lmer (F1mid.c ~ Group * Phoneme  +
+                     (1|Speaker) + (1|Time),
+                    data = dat,
+                    REML = T,
+                    lmerControl(optimizer = "bobyqa", 
+                                optCtrl = list(maxfun = 100000)))
+```
+
+## Check assumptions
+```{r}
+par(mfrow = c(2, 2))
+acf(resid(f1.model)) # OK
+car::vif(f1.model)
+plot(resid(f1.model), fitted(f1.model)) # Bad
+qqnorm(resid(f1.model)) # Bad
+qqline(resid(f1.model))
+```
+
+## Trim residuals and refit
+```{r}
+f1.2 <- dat[abs(scale(resid(f1.model))) < 2, ]
+
+(1 - (nrow(f1.2))/nrow(dat)) * 100  # 4.74 removed
+f1model.v2 <- lmerTest::lmer (F1mid.c ~ Group * Phoneme + 
+                     (1|Speaker) + (1|Time),
+                    data = f1.2,
+                    REML = T,
+                    lmerControl(optimizer = "bobyqa", 
+                                optCtrl = list(maxfun = 100000)))
+```
+### Check assumptions
+```{r}
+par(mfrow = c(2, 2))
+acf(resid(f1model.v2)) # OK
+plot(resid(f1model.v2), fitted(f1model.v2)) # OK
+qqnorm(resid(f1model.v2)) # OK
+qqline(resid(f1model.v2))
+```
+
+
+# 6. Model for F2
+```{r}
+f2.model1 <- lmerTest::lmer (F2mid.c ~ Group * Phoneme + 
+                     (1|Speaker) + (1|Time),
+                    data = dat,
+                    REML = T,
+                    lmerControl(optimizer = "bobyqa", 
+                                optCtrl = list(maxfun = 100000)))
+```
+
+## Check assumptions
+```{r}
+par(mfrow = c(2, 2))
+car::vif(f2.model1) # OK
+acf(resid(f2.model1)) # OK
+plot(resid(f2.model1), fitted(f2.model1)) # fine: considering there are three phone groups
+qqnorm(resid(f2.model1)) # some tails
+qqline(resid(f2.model1))
+```
+
+## Scale residuals
+```{r}
+f2.2 <- dat[abs(scale(resid(f2.model1))) < 2, ]
+
+(1 - (nrow(f2.2))/nrow(dat)) * 100  # 4.88 removed
+f2model1.v2 <- lmerTest::lmer (F2mid.c ~ Group * Phoneme + 
+                     (1|Speaker) + (1|Time),
+                    data = f2.2,
+                    REML = T,
+                    lmerControl(optimizer = "bobyqa", 
+                                optCtrl = list(maxfun = 100000)))
+```
+
+### Check assumptions
+```{r}
+par(mfrow = c(2, 2))
+car::vif(f2model1.v2) # OK
+acf(resid(f2model1.v2)) # OK
+plot(resid(f2model1.v2), fitted(f2model1.v2)) # fine: considering there are three phone groups
+qqnorm(resid(f2model1.v2)) # some tails, but smaller
+qqline(resid(f2model1.v2))
+```
+
+# Try with log transformed data
+```{r}
+logf2.model1 <- lmerTest::lmer (F2mid.log.c ~ Group * Phoneme + 
+                     (1|Speaker) + (1|Time),
+                    data = dat,
+                    REML = T,
+                    lmerControl(optimizer = "bobyqa", 
+                                optCtrl = list(maxfun = 100000)))
+```
+
+## Check assumptions
+```{r}
+par(mfrow = c(2, 2))
+car::vif(logf2.model1) # OK
+acf(resid(logf2.model1)) # OK
+plot(resid(logf2.model1), fitted(logf2.model1)) # fine: considering there are three phone groups
+qqnorm(resid(logf2.model1)) # Worse than trimmed residual model with no transformation
+qqline(resid(logf2.model1))
+```
+
+## Scale residuals and refit
+```{r}
+log.f2.2 <- dat[abs(scale(resid(logf2.model1))) < 2, ]
+
+(1 - (nrow(log.f2.2))/nrow(dat)) * 100  # 4.85 removed
+log.f2model1.v2 <- lmerTest::lmer (F2mid.log.c ~ Group * Phoneme + 
+                     (1|Speaker) + (1|Time),
+                    data = log.f2.2,
+                    REML = T,
+                    lmerControl(optimizer = "bobyqa", 
+                                optCtrl = list(maxfun = 100000)))
+```
+### Check assumptions
+```{r}
+par(mfrow = c(2, 2))
+car::vif(log.f2model1.v2) # OK
+acf(resid(log.f2model1.v2)) # OK
+plot(resid(log.f2model1.v2), fitted(log.f2model1.v2)) # fine: considering there are three phone groups
+qqnorm(resid(log.f2model1.v2)) # OK
+qqline(resid(log.f2model1.v2))
+```
+
+# 7. Multiple comparisons between the final models
+```{r}
+f1.summary <- emmeans(f1model.v2,list(pairwise~Group|Phoneme), adjust = "fdr")
+f2.summary <- emmeans(log.f2model1.v2,list(pairwise~Group|Phoneme), adjust = "fdr")
+
+f1.summary
+f2.summary
+```

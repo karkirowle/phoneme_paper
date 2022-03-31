@@ -1,0 +1,63 @@
+---
+title: "fdr-corrections"
+author: Thomas Tienkamp ^1^, Rob van Son ^2^^3^,  Bence Halpern ^2^^3^^4^ <br /> ^1^ Center for Language and Cognition Groningen, University of Groningen, Groningen, The Netherlands, ^2^ Amsterdam Center for Language and Communication, University of Amsterdam, Amsterdam, The Netherlands ^3^ Netherlands Cancer Institute, Amsterdam, The Netherlands, ^4^ Multimedia Computing Group, Delft University of Technology, Delft, The Netherlands
+date: "Last compiled 'on `r date()`"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: false
+    theme: united
+    highlight: tango
+---
+# 1. Description
+This code will show p-value corrections for the multiple comparions in the group analysis for the consonants
+
+# 2. Set -up
+## 2.1 packages
+```{r}
+library(tidyverse)
+library(broom)
+```
+
+## 2.2 data
+## Working directory
+```{r}
+# If working in the UWP
+#mywd <- "X:/My Desktop/all-projects/nki_youtube-phoneme/"
+#datawd <- paste0(mywd,"data/")
+
+#If working from home
+mywd <- "C:/Users/Thomas/Desktop/nki_youtube-phoneme/"
+datawd <- paste0(mywd,"data/")
+```
+
+## Data loading
+```{r}
+bf<- read.csv(paste0(datawd, "Multiple comparisons - BF.csv"), sep=',')
+cog <-read.csv(paste0(datawd, "Multiple comparisons - COG.csv"), sep=',')
+skew <- read.csv(paste0(datawd, "Multiple comparisons - Skew.csv"), sep=',')
+```
+
+# 3. fdr correction
+```{r}
+bf <-
+  bf %>%
+  mutate(p_adjust = p.adjust(p_value, method = "fdr"))
+
+bf
+
+cog <-
+  cog %>%
+  mutate(p_adjust = p.adjust(p_value, method = "fdr"))
+
+cog
+
+skew <-
+  skew %>%
+  mutate(p_adjust = p.adjust(p_value, method = "fdr"))
+
+skew
+```
+
+
