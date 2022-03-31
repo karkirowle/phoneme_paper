@@ -32,3 +32,7 @@ Reports values: Max, Min, Median, 5% Perc., 95% Perc., Mean, S
 **within-male01.Rmd** Longitudinal (within speaker) analysis for the speaker called Male01
 
 **fdr-corrections.Rmd** Contains the [False Discovery Rate](https://en.wikipedia.org/wiki/False_discovery_rate) corrections for the hypothesis tests 
+
+### Extracted features
+
+The extracted features an be found either in the analysis folder or these can be extracted from the original files and textgrids on [Zenodo](https://zenodo.org/record/6401713#.YkW74DyxVFM). 
