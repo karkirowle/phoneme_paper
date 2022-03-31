@@ -1,6 +1,7 @@
 
 ### Accompanying scripts for the paper "Objective speech outcomes after surgical treatment for oral cancer: An acoustic analysis of a spontaneous speech corpus containing 32.850 tokens"
 
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0) 
 ## How do I use these scripts
 
 You need to download Praat first from [http://www.praat.org/](http://www.praat.org/).
